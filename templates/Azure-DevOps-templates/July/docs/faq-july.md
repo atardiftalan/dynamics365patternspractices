@@ -98,7 +98,7 @@ Rerun Phase 5 with fewer workers. The importer records successful imports in `ad
 
 Start with 2-8 workers. Use 1 worker when diagnosing repeated throttling or validation errors.
 
-## What should I do if a required field failure stops Phase 5?
+## What should I do if Phase 5 reports required field failures?
 
 Required field failures usually mean either:
 
@@ -106,6 +106,8 @@ Required field failures usually mean either:
 - the template marks a field as applicable/required for a work item type where the source data doesn't provide that field.
 
 Fix the source data, update the template/process requirement, or make the field not required for that work item type. Then rerun Phase 5. The importer skips keys already present in `ado-id-map.csv`.
+
+By default, Phase 5 continues after individual work item failures and writes them to `import-failures.json`. If it was run with `--catalog-fail-fast` or `BPC_ADO_IMPORT_CONTINUE_ON_ERROR=0`, it stops after the first individual failure.
 
 ## Does Phase 5 update existing work items?
 

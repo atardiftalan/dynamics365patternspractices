@@ -108,6 +108,8 @@ python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
 
 If Azure DevOps returns ATCPU or HTTP 429 throttling, rerun Phase 5 with fewer workers. The importer skips keys already recorded in `ado-id-map.csv`.
 
+Phase 5 records individual work item failures in `import-failures.json` and continues with other importable rows by default. Use `--catalog-fail-fast` when you want the import to stop after the first individual failure.
+
 ## Review output
 
 Open:
