@@ -14,6 +14,7 @@ Use this package to create or update the Azure DevOps process/project configurat
 | 4 | Configure backlog levels, iterations, and team settings | `4_ADO_Backlog_Config_Script.py` |
 | 5 | Import Business Process Catalog work items | `5_BPC_Catalog_Import.py` |
 | 6 | Generate deterministic HTML setup/import summary report | `6_Generate_HTML_Report.py` |
+| 7 | Update existing Business Process Catalog work items from source files | `7_BPC_Catalog_Update.py` |
 
 ## Install dependencies
 
@@ -26,7 +27,7 @@ python -m pip install -r requirements.txt
 > [!TIP]
 > A Python virtual environment is optional. Use one if you want to isolate this package's dependencies from other Python tools on the machine. For Windows guidance, see [Creation of virtual environments](https://docs.python.org/3/library/venv.html#creating-virtual-environments). After creating and activating a virtual environment, use the same commands shown in this README.
 
-## Run all phases
+## Run setup, import, and report phases
 
 ```powershell
 python setup_wizard.py `
@@ -34,7 +35,7 @@ python setup_wizard.py `
   --ado-project "<project name>" `
   --process-name "<process name>" `
   --excel-file "<path to ADO template guideline workbook>" `
-  --catalog-source-dir "<folder containing the four catalog source files>" `
+  --catalog-source-dir "<folder containing one or more catalog source files>" `
   --catalog-output ".\out" `
   --catalog-parallel-workers 4
 ```
@@ -42,6 +43,8 @@ python setup_wizard.py `
 The wizard prompts for the PAT if `BPC_ADO_PAT` is not already set. The PAT is kept in memory for the run and is not written to script files.
 
 For large imports, start with 2-8 parallel workers. Higher worker counts may trigger Azure DevOps ATCPU throttling. The importer retries transient HTTP 408, 429, and 5xx responses.
+
+The wizard defaults to phases 1-6. Phase 7 updates existing work items and must be run explicitly.
 
 ## Run selected phases
 
@@ -61,6 +64,18 @@ Regenerate only the HTML summary report:
 
 ```powershell
 python setup_wizard.py --start-at 6 --stop-after 6
+```
+
+Preview catalog updates without changing Azure DevOps:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7
+```
+
+Apply catalog updates after reviewing the preview:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
 ```
 
 ## Phase 5 import behavior
@@ -93,6 +108,26 @@ Key output files:
 - `import-failures.json` - unresolved failure details from the latest failed run. The Phase 6 report reconciles this with `ado-id-map.csv` so resolved prior failures do not keep the report in a failed state.
 - `skipped-deprecated-deleted.csv` - source rows skipped by create/import mode.
 - `bpc-ado-setup-summary.html` - Phase 6 HTML summary report.
+
+## Phase 7 update behavior
+
+Phase 7 is separate from Phase 5. Phase 5 keeps its create/import and resume behavior. Phase 7 reads the same catalog source files, matches existing work items by `ado-id-map.csv`, and can update existing work item fields.
+
+By default, Phase 7 is a dry run. It reads current Azure DevOps work item values and writes an update plan and results without changing Azure DevOps. Pass `--catalog-update-apply` to the wizard to apply updates.
+
+Phase 7 updates only catalog-owned fields by default:
+
+- `MSBPC.*` fields,
+- `System.Title`,
+- `System.Description`.
+
+It excludes project-management and workflow fields such as state, reason, assigned-to, area path, iteration path, tags, and test-step fields unless the lower-level importer CLI is run with explicit field options.
+
+Phase 7 writes project-scoped output under the same output folder as Phase 5:
+
+- `update-plan.json` - field-level update plan and desired/current values.
+- `update-results.csv` - per-row planned, updated, unchanged, skipped, or failed status.
+- `update-failures.json` - update failure details when failures occur.
 
 ## Test Case New state
 

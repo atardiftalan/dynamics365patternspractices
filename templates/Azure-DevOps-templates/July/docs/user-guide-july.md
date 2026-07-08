@@ -48,7 +48,7 @@ Do not paste the PAT into the scripts or commit it to source control. Let the wi
 $env:BPC_ADO_PAT = "<paste PAT here>"
 ```
 
-## Run the full setup
+## Run setup, import, and report phases
 
 ```powershell
 python setup_wizard.py `
@@ -62,6 +62,8 @@ python setup_wizard.py `
 ```
 
 The wizard prompts for the Azure DevOps PAT if `BPC_ADO_PAT` is not already set.
+
+The wizard defaults to phases 1-6. Phase 7 updates existing work items and must be run explicitly.
 
 ## Run selected phases
 
@@ -81,6 +83,18 @@ Generate only the HTML report:
 
 ```powershell
 python setup_wizard.py --start-at 6 --stop-after 6
+```
+
+Preview catalog updates without changing Azure DevOps:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7
+```
+
+Apply catalog updates after reviewing the preview:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
 ```
 
 ## Choose a worker count
@@ -133,6 +147,25 @@ The importer also writes:
 - `import-preview.csv` for a human-readable preview,
 - `import-failures.json` for detailed failure messages,
 - `skipped-deprecated-deleted.csv` for rows skipped by create/import mode.
+
+## How catalog updates work
+
+Phase 7 updates existing Azure DevOps work items from the catalog source files. It is separate from Phase 5 so rerunning import remains a create/resume operation.
+
+Phase 7 matches source rows to Azure DevOps work items by:
+
+1. `ado-id-map.csv` from the project output folder.
+2. `MSBPC.microsoftid` recovery lookup when apply mode is enabled and the key is missing from `ado-id-map.csv`.
+
+By default, Phase 7 is a dry run. It reads current Azure DevOps work item values and writes:
+
+- `update-plan.json` for field-level desired/current values,
+- `update-results.csv` for planned, updated, unchanged, skipped, or failed rows,
+- `update-failures.json` if update failures occur.
+
+Pass `--catalog-update-apply` to apply the updates.
+
+Phase 7 updates only catalog-owned fields by default: `MSBPC.*`, `System.Title`, and `System.Description`. It excludes workflow and project-management fields such as state, reason, assigned-to, area path, iteration path, tags, and test-step fields.
 
 ## Rerun behavior
 

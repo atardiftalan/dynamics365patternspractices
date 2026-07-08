@@ -50,6 +50,9 @@ def latest_import_output_time(out_dir: Path) -> dt.datetime | None:
         "import-failures.json",
         "import-plan.json",
         "import-preview.csv",
+        "update-failures.json",
+        "update-plan.json",
+        "update-results.csv",
         "skipped-deprecated-deleted.csv",
         "import-context.json",
     }
@@ -92,7 +95,7 @@ def ado_links(config, out_dir: Path, logs: list[dict[str, Any]]) -> list[dict[st
         {"label": "Open Process Settings", "href": f"{org}/_settings/process?process-name={process_query}", "kind": "web"},
         {"label": "Open output folder", "href": file_link(out_dir), "kind": "file"},
     ]
-    for name in ("ado-id-map.csv", "import-failures.json", "import-preview.csv", "bpc-ado-setup-summary.html"):
+    for name in ("ado-id-map.csv", "import-failures.json", "import-preview.csv", "update-results.csv", "update-failures.json", "bpc-ado-setup-summary.html"):
         path = out_dir / name
         if path.exists():
             links.append({"label": f"Open {name}", "href": file_link(path), "kind": "file"})
@@ -109,6 +112,7 @@ def latest_phase_logs() -> list[dict[str, Any]]:
         "Phase 2": "2_ADO_Page_Layout_Script_Threaded_Log_*.txt",
         "Phase 3": "3_ADO_Teams_Areas_Log_*.txt",
         "Phase 4": "4_ADO_Backlog_Config_Log_*.txt",
+        "Phase 7": "7_BPC_Catalog_Update_Log*.txt",
         "Wizard": "bpc_ado_setup_wizard*.log",
     }
     logs = []
