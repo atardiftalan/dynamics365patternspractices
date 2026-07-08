@@ -86,9 +86,12 @@ Phase 5 uses the same Azure DevOps organization, project, PAT, and template work
 - project-scoped output folders,
 - retry handling for transient connection failures,
 - idempotent resume through `ado-id-map.csv`,
+- continued processing after individual work item failures,
 - dynamic work item type reference resolution,
 - Test Case create fallback when Azure DevOps rejects custom state values at create time,
 - deprecated/deleted source rows skipped by default.
+
+By default, Phase 5 records individual work item failures in `import-failures.json` and continues with other importable rows. To stop after the first individual failure, run the wizard with `--catalog-fail-fast` or set `BPC_ADO_IMPORT_CONTINUE_ON_ERROR=0` before running `5_BPC_Catalog_Import.py` directly.
 
 If the template workbook is in a folder named `Python Scripts`, the catalog source folder defaults to that folder's parent. Otherwise pass `--catalog-source-dir`.
 

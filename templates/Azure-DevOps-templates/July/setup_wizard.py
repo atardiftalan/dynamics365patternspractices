@@ -78,6 +78,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--catalog-source-dir", help="Folder containing one or more BPC source files. Defaults to the parent folder of a 'Python Scripts' template folder.")
     parser.add_argument("--catalog-output", help="Base output folder for phase 5 import logs, phase 7 update logs, and ID maps.")
     parser.add_argument("--catalog-parallel-workers", default="4", help="Parallel worker count for phase 5 catalog import.")
+    parser.add_argument("--catalog-fail-fast", action="store_true", help="Stop phase 5 after the first individual work item failure.")
     parser.add_argument("--catalog-update-apply", action="store_true", help="Apply phase 7 catalog updates. Without this flag, phase 7 writes a dry-run update plan only.")
     parser.add_argument(
         "--skip-excel-validation",
@@ -181,6 +182,7 @@ def _phase_env(config: AdoSetupConfig, args: argparse.Namespace) -> Dict[str, st
             "BPC_ADO_CATALOG_SOURCE_DIR": args.catalog_source_dir or _default_catalog_source(config.excel_file),
             "BPC_ADO_IMPORT_OUTPUT": args.catalog_output or os.path.join(SCRIPT_DIR, "out"),
             "BPC_ADO_IMPORT_PARALLEL_WORKERS": str(args.catalog_parallel_workers),
+            "BPC_ADO_IMPORT_CONTINUE_ON_ERROR": "0" if args.catalog_fail_fast else "1",
             "BPC_ADO_UPDATE_APPLY": "1" if args.catalog_update_apply else "0",
         }
     )

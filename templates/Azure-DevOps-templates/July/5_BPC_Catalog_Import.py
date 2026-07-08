@@ -28,6 +28,7 @@ def main() -> int:
     progress_seconds = os.getenv("BPC_ADO_IMPORT_PROGRESS_SECONDS") or "60"
     max_retries = os.getenv("BPC_ADO_IMPORT_MAX_RETRIES") or "8"
     retry_delay_seconds = os.getenv("BPC_ADO_IMPORT_RETRY_DELAY_SECONDS") or "30"
+    continue_on_error = os.getenv("BPC_ADO_IMPORT_CONTINUE_ON_ERROR", "1").strip().lower()
 
     os.environ["BPC_ADO_PAT"] = config.pat
     project_url = f"{config.ado_org_url}/{config.ado_project}/"
@@ -43,6 +44,8 @@ def main() -> int:
         "--max-retries", max_retries,
         "--retry-delay-seconds", retry_delay_seconds,
     ]
+    if continue_on_error not in ("0", "false", "no"):
+        argv.append("--continue-on-error")
     if os.getenv("BPC_ADO_INCLUDE_DEPRECATED_DELETED", "").strip().lower() in ("1", "true", "yes"):
         argv.append("--include-deprecated-deleted")
     return importer_main(argv)
