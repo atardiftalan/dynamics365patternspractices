@@ -67,6 +67,7 @@ The July release reduces or removes several manual steps from the current Learn 
 - Phase 4 configures backlog levels, iterations, and team settings from the workbook.
 - Phase 5 imports the catalog source workbooks with resume support.
 - Phase 6 generates an HTML summary report instead of requiring users to inspect multiple raw logs.
+- Phase 7 can preview or apply catalog-owned field updates to existing imported work items.
 
 Some steps remain manual: users still need to create or select the target Azure DevOps organization, create a PAT, grant project users access, install/enable required Azure DevOps extensions when needed, and validate the resulting project configuration.
 
@@ -119,7 +120,7 @@ The July template cleanup includes:
 
 ## Known limitations
 
-- Phase 5 create/import mode does not update existing work items other than recovery from ambiguous transient failures.
+- Phase 5 create/import mode does not update existing work items other than recovery from ambiguous transient failures. Use Phase 7 for preview-first updates to existing imported work items.
 - `Deprecated` and `Deleted` rows are skipped in create/import mode.
 - Very high parallel worker counts can trigger ADO ATCPU throttling. Start with 2-8 workers and increase only after validating process stability.
 - The HTML report is deterministic and local; it does not query Azure DevOps to verify every work item after import.

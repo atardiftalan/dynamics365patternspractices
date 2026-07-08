@@ -107,6 +107,22 @@ Required field failures usually mean either:
 
 Fix the source data, update the template/process requirement, or make the field not required for that work item type. Then rerun Phase 5. The importer skips keys already present in `ado-id-map.csv`.
 
+## Does Phase 5 update existing work items?
+
+No. Phase 5 creates missing work items and skips keys already present in `ado-id-map.csv`.
+
+Use Phase 7 to update existing work items from catalog source files. Phase 7 is a dry run by default:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7
+```
+
+After reviewing `update-plan.json` and `update-results.csv`, apply updates with:
+
+```powershell
+python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
+```
+
 ## Why does the HTML report show resolved prior failures?
 
 `import-failures.json` can contain a failure from an earlier run. If a later rerun imports that same key successfully, the key appears in `ado-id-map.csv`.

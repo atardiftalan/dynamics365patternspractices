@@ -196,6 +196,14 @@ class AzureDevOpsClient:
             headers={"Content-Type": "application/json-patch+json"},
         ).json()
 
+    def get_work_item_fields(self, work_item_id: int, fields: list[str] | None = None) -> dict[str, Any]:
+        query = ""
+        if fields:
+            query = "&fields=" + ",".join(quote(field, safe="") for field in fields)
+        url = self._url(f"_apis/wit/workItems/{work_item_id}?api-version={self.api_version}{query}")
+        data = self._request("GET", url).json()
+        return data.get("fields", {}) or {}
+
     def update_work_item_fields(self, work_item_id: int, fields: dict[str, Any]) -> dict[str, Any]:
         patch = [
             {"op": "add", "path": f"/fields/{ref}", "value": value}

@@ -56,6 +56,12 @@ PHASES = [
         "6_Generate_HTML_Report.py",
         [],
     ),
+    Phase(
+        7,
+        "Update existing Business Process Catalog work items",
+        "7_BPC_Catalog_Update.py",
+        [],
+    ),
 ]
 
 
@@ -67,11 +73,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "--process-name, --excel-file, or environment variables."
         )
     )
-    parser.add_argument("--start-at", type=int, choices=[1, 2, 3, 4, 5, 6], default=1, help="First phase to run.")
-    parser.add_argument("--stop-after", type=int, choices=[1, 2, 3, 4, 5, 6], default=6, help="Last phase to run.")
-    parser.add_argument("--catalog-source-dir", help="Folder containing the four BPC source files. Defaults to the parent folder of a 'Python Scripts' template folder.")
-    parser.add_argument("--catalog-output", help="Base output folder for phase 5 import logs and ID maps.")
+    parser.add_argument("--start-at", type=int, choices=[1, 2, 3, 4, 5, 6, 7], default=1, help="First phase to run.")
+    parser.add_argument("--stop-after", type=int, choices=[1, 2, 3, 4, 5, 6, 7], default=6, help="Last phase to run.")
+    parser.add_argument("--catalog-source-dir", help="Folder containing one or more BPC source files. Defaults to the parent folder of a 'Python Scripts' template folder.")
+    parser.add_argument("--catalog-output", help="Base output folder for phase 5 import logs, phase 7 update logs, and ID maps.")
     parser.add_argument("--catalog-parallel-workers", default="4", help="Parallel worker count for phase 5 catalog import.")
+    parser.add_argument("--catalog-update-apply", action="store_true", help="Apply phase 7 catalog updates. Without this flag, phase 7 writes a dry-run update plan only.")
     parser.add_argument(
         "--skip-excel-validation",
         action="store_true",
@@ -174,6 +181,7 @@ def _phase_env(config: AdoSetupConfig, args: argparse.Namespace) -> Dict[str, st
             "BPC_ADO_CATALOG_SOURCE_DIR": args.catalog_source_dir or _default_catalog_source(config.excel_file),
             "BPC_ADO_IMPORT_OUTPUT": args.catalog_output or os.path.join(SCRIPT_DIR, "out"),
             "BPC_ADO_IMPORT_PARALLEL_WORKERS": str(args.catalog_parallel_workers),
+            "BPC_ADO_UPDATE_APPLY": "1" if args.catalog_update_apply else "0",
         }
     )
     return env
@@ -216,10 +224,10 @@ def main() -> int:
 
     if not args.skip_excel_validation:
         validate_excel(config, phases)
-    if any(phase.number == 5 for phase in phases):
+    if any(phase.number in (5, 7) for phase in phases):
         catalog_source = args.catalog_source_dir or _default_catalog_source(config.excel_file)
         if not os.path.isdir(catalog_source):
-            raise FileNotFoundError(f"Catalog source folder not found for phase 5: {catalog_source}")
+            raise FileNotFoundError(f"Catalog source folder not found for selected catalog phase: {catalog_source}")
     if not args.skip_ado_validation:
         validate_ado_access(config)
 

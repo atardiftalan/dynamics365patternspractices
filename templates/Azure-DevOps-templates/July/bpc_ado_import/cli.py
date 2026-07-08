@@ -36,6 +36,17 @@ def main(argv: list[str] | None = None) -> int:
     import_parser.add_argument("--recovery-field", default="MSBPC.microsoftid", help="Field used to find a work item after an ambiguous transient failure.")
     import_parser.add_argument("--parallel-workers", type=int, default=4, help="Number of parent-aware create workers. Use 1 for serial import.")
     import_parser.add_argument("--include-deprecated-deleted", action="store_true", help="Include rows whose Catalog status is Deprecated or Deleted. Create mode skips them by default.")
+    update_parser = sub.add_parser("update", help="Update already-imported work items from the source files.")
+    _add_common(update_parser)
+    update_parser.add_argument("--pat-env", default="AZURE_DEVOPS_PAT", help="Environment variable containing the PAT. If unset, prompts securely.")
+    update_parser.add_argument("--dry-run", action="store_true", help="Write an update plan without modifying Azure DevOps.")
+    update_parser.add_argument("--id-map", help="Path to ado-id-map.csv. Defaults to the project-scoped output folder.")
+    update_parser.add_argument("--recovery-field", default="MSBPC.microsoftid", help="Field used to find work items missing from ado-id-map.csv.")
+    update_parser.add_argument("--skip-unknown-fields", action="store_true", help="Drop fields that do not exist in the target project.")
+    update_parser.add_argument("--include-deprecated-deleted", action="store_true", help="Include rows whose Catalog status is Deprecated or Deleted. Update mode skips them by default.")
+    update_parser.add_argument("--field-prefix", action="append", default=["MSBPC."], help="Field reference prefix eligible for update. Repeat to allow more prefixes.")
+    update_parser.add_argument("--field", action="append", default=["System.Title", "System.Description"], help="Exact field reference eligible for update. Repeat to allow more fields.")
+    update_parser.add_argument("--exclude-field", action="append", default=[], help="Exact field reference to exclude from update.")
     backfill_parser = sub.add_parser("backfill-links", help="Backfill missing parent-child links for already-created work items.")
     _add_common(backfill_parser)
     backfill_parser.add_argument("--pat-env", default="AZURE_DEVOPS_PAT", help="Environment variable containing the PAT. If unset, prompts securely.")
@@ -47,13 +58,15 @@ def main(argv: list[str] | None = None) -> int:
         return plan(args)
     if args.command == "import":
         return import_to_ado(args)
+    if args.command == "update":
+        return update_existing(args)
     if args.command == "backfill-links":
         return backfill_links(args)
     return 1
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--source", required=True, help="Folder containing the four BPC source workbooks/CSVs.")
+    parser.add_argument("--source", required=True, help="Folder containing one or more BPC source workbooks/CSVs.")
     parser.add_argument("--template", help="ADO template guideline workbook with Fields and Work item types sheets.")
     parser.add_argument("--project-url", required=True, help="Azure DevOps project URL.")
     parser.add_argument("--output", default="out", help="Base output folder for plans, CSV previews, logs, and ID maps.")
@@ -129,6 +142,95 @@ def import_to_ado(args: argparse.Namespace) -> int:
     reporter.report(len(drafts), len(id_map), "completed")
     print("Import completed successfully." if not args.dry_run else "Dry run completed successfully.")
     return 0
+
+
+def update_existing(args: argparse.Namespace) -> int:
+    pat = _get_pat(args.pat_env, False)
+
+    _progress("Loading source files and template...")
+    drafts = _load_drafts(args.source, args.template)
+    drafts, skipped = _filter_create_mode_drafts(drafts, args.include_deprecated_deleted)
+    _progress(f"Loaded {len(drafts)} planned work item update candidate(s). Skipped {len(skipped)} deprecated/deleted row(s).")
+
+    _progress("Connecting to Azure DevOps...")
+    client = AzureDevOpsClient(args.project_url, pat)
+    _normalize_tree_paths(drafts, client.project.project)
+    out = _resolve_output_dir(args, client.project)
+    out.mkdir(parents=True, exist_ok=True)
+    _write_output_context(out, client.project, args)
+    _write_skipped_csv(out / "update-skipped-deprecated-deleted.csv", skipped)
+
+    _progress("Reading Azure DevOps fields and work item types...")
+    valid_fields = client.get_fields()
+    work_item_type_refs = client.get_work_item_type_references()
+    args._work_item_type_refs = {_work_item_type_key(key): value for key, value in work_item_type_refs.items()}
+    valid_wits = set(work_item_type_refs) if not args.dry_run else set()
+    id_map_path = Path(args.id_map) if args.id_map else out / "ado-id-map.csv"
+    id_map: dict[str, int] = _read_id_map(id_map_path)
+    _progress(f"Starting update. {len(id_map)} work item ID(s) loaded from {id_map_path}.")
+
+    results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    update_plan: list[dict[str, Any]] = []
+    recovered: list[tuple[WorkItemDraft, int]] = []
+    eligible_fields = _eligible_update_fields(args)
+
+    for index, draft in enumerate(drafts, start=1):
+        prepared = _prepare_fields(draft, valid_fields, valid_wits, args.skip_unknown_fields)
+        if isinstance(prepared, str):
+            failures.append(_failure(draft, prepared))
+            results.append(_update_result_row(draft, "", "failed", prepared, 0))
+            continue
+        fields = {ref: value for ref, value in prepared.items() if _field_is_update_eligible(ref, eligible_fields, args.exclude_field)}
+        if not fields:
+            results.append(_update_result_row(draft, "", "skipped", "No eligible update fields.", 0))
+            continue
+        ado_id = id_map.get(draft.key)
+        recovery_message = ""
+        if not ado_id:
+            ado_id = client.find_work_item_id(_target_work_item_type(args, draft.work_item_type), args.recovery_field, draft.fields.get(args.recovery_field))
+            if ado_id:
+                recovery_message = f"Recovered ADO ID from {args.recovery_field}."
+                if not args.dry_run:
+                    recovered.append((draft, ado_id))
+        if not ado_id:
+            message = "No ADO ID found in ado-id-map.csv or recovery lookup."
+            failures.append(_failure(draft, message))
+            results.append(_update_result_row(draft, "", "failed", message, 0))
+            continue
+        try:
+            current = client.get_work_item_fields(int(ado_id), sorted(fields))
+            changes = _changed_fields(fields, current)
+            update_plan.append(_update_plan_entry(draft, int(ado_id), fields, current, changes))
+            if not changes:
+                results.append(_update_result_row(draft, int(ado_id), "unchanged", recovery_message or "No field differences.", 0))
+            elif args.dry_run:
+                results.append(_update_result_row(draft, int(ado_id), "planned", recovery_message or "Dry run only.", len(changes)))
+            else:
+                client.update_work_item_fields(int(ado_id), changes)
+                results.append(_update_result_row(draft, int(ado_id), "updated", recovery_message, len(changes)))
+        except Exception as exc:
+            failures.append(_failure(draft, str(exc)))
+            results.append(_update_result_row(draft, int(ado_id), "failed", str(exc), 0))
+        if index % 100 == 0 or index == len(drafts):
+            _progress(f"Update progress: {index}/{len(drafts)} checked.")
+
+    if recovered:
+        for draft, ado_id in recovered:
+            _append_id_map(id_map_path, draft, ado_id)
+    _write_update_plan(out / "update-plan.json", update_plan)
+    _write_update_results(out / "update-results.csv", results)
+    if failures:
+        (out / "update-failures.json").write_text(json.dumps(failures, indent=2), encoding="utf-8")
+    else:
+        failure_path = out / "update-failures.json"
+        if failure_path.exists():
+            failure_path.unlink()
+    summary = _summarize_statuses(results)
+    _progress("Update summary: " + ", ".join(f"{key}={value}" for key, value in sorted(summary.items())))
+    _progress(f"Wrote {out / 'update-plan.json'}")
+    _progress(f"Wrote {out / 'update-results.csv'}")
+    return 2 if failures else 0
 
 
 def backfill_links(args: argparse.Namespace) -> int:
@@ -694,6 +796,114 @@ def _write_backfill_report(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _eligible_update_fields(args: argparse.Namespace) -> tuple[tuple[str, ...], set[str]]:
+    prefixes = tuple(str(prefix or "").strip() for prefix in getattr(args, "field_prefix", []) if str(prefix or "").strip())
+    fields = {str(field or "").strip() for field in getattr(args, "field", []) if str(field or "").strip()}
+    return prefixes, fields
+
+
+def _field_is_update_eligible(ref: str, eligible_fields: tuple[tuple[str, ...], set[str]], excluded: list[str]) -> bool:
+    excluded_fields = {str(field or "").strip().lower() for field in excluded}
+    if ref.lower() in excluded_fields:
+        return False
+    blocked = {
+        "System.State",
+        "System.Reason",
+        "System.AssignedTo",
+        "System.AreaPath",
+        "System.IterationPath",
+        "System.Tags",
+        "Microsoft.VSTS.TCM.Steps",
+        "Microsoft.VSTS.TCM.AutomationStatus",
+    }
+    if ref in blocked:
+        return False
+    prefixes, fields = eligible_fields
+    return ref in fields or any(ref.startswith(prefix) for prefix in prefixes)
+
+
+def _changed_fields(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    for ref, desired_value in desired.items():
+        if desired_value in (None, ""):
+            continue
+        current_value = current.get(ref)
+        if _field_values_equal(desired_value, current_value):
+            continue
+        changes[ref] = desired_value
+    return changes
+
+
+def _field_values_equal(left: Any, right: Any) -> bool:
+    if left == right:
+        return True
+    if left in (None, "") and right in (None, ""):
+        return True
+    if isinstance(left, bool) or isinstance(right, bool):
+        return str(left).strip().lower() == str(right).strip().lower()
+    return str(left).strip() == str(right).strip()
+
+
+def _update_plan_entry(
+    draft: WorkItemDraft,
+    ado_id: int,
+    desired: dict[str, Any],
+    current: dict[str, Any],
+    changes: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "key": draft.key,
+        "adoId": ado_id,
+        "workItemType": draft.work_item_type,
+        "title": draft.title,
+        "sourceFile": draft.source_file,
+        "sourceRow": draft.source_row,
+        "changeCount": len(changes),
+        "changes": [
+            {
+                "field": ref,
+                "current": current.get(ref),
+                "desired": desired.get(ref),
+            }
+            for ref in sorted(changes)
+        ],
+    }
+
+
+def _update_result_row(draft: WorkItemDraft, ado_id: int | str, status: str, message: str, change_count: int) -> dict[str, Any]:
+    return {
+        "Key": draft.key,
+        "ADO ID": ado_id,
+        "Work Item Type": draft.work_item_type,
+        "Title": draft.title,
+        "Source File": draft.source_file,
+        "Source Row": draft.source_row,
+        "Status": status,
+        "Change Count": change_count,
+        "Message": message,
+    }
+
+
+def _write_update_plan(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_update_results(path: Path, rows: list[dict[str, Any]]) -> None:
+    fieldnames = ["Key", "ADO ID", "Work Item Type", "Title", "Source File", "Source Row", "Status", "Change Count", "Message"]
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _summarize_statuses(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        status = str(row.get("Status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 def _write_skipped_csv(path: Path, drafts: list[WorkItemDraft]) -> None:
