@@ -168,12 +168,19 @@ def update_existing(args: argparse.Namespace) -> int:
     id_map_path = Path(args.id_map) if args.id_map else out / "ado-id-map.csv"
     id_map: dict[str, int] = _read_id_map(id_map_path)
     _progress(f"Starting update. {len(id_map)} work item ID(s) loaded from {id_map_path}.")
+    if not id_map:
+        _progress(
+            "No work item IDs were loaded. Phase 7 will try Azure DevOps recovery lookups by "
+            f"{args.recovery_field}; this can be slow for large catalogs. Verify Phase 5 used the same output folder "
+            "or pass --id-map to the update command if you already have ado-id-map.csv."
+        )
 
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     update_plan: list[dict[str, Any]] = []
     recovered: list[tuple[WorkItemDraft, int]] = []
     eligible_fields = _eligible_update_fields(args)
+    recovery_attempts = 0
 
     for index, draft in enumerate(drafts, start=1):
         prepared = _prepare_fields(draft, valid_fields, valid_wits, args.skip_unknown_fields)
@@ -188,6 +195,9 @@ def update_existing(args: argparse.Namespace) -> int:
         ado_id = id_map.get(draft.key)
         recovery_message = ""
         if not ado_id:
+            recovery_attempts += 1
+            if recovery_attempts == 1 or recovery_attempts % 25 == 0:
+                _progress(f"Recovery lookup progress: {recovery_attempts} lookup(s) attempted; {index}/{len(drafts)} candidate(s) checked.")
             ado_id = client.find_work_item_id(_target_work_item_type(args, draft.work_item_type), args.recovery_field, draft.fields.get(args.recovery_field))
             if ado_id:
                 recovery_message = f"Recovered ADO ID from {args.recovery_field}."
