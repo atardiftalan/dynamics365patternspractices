@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -483,9 +484,10 @@ def _prepare_fields(
     valid_wits: set[str],
     skip_unknown_fields: bool,
 ) -> dict[str, Any] | str:
-    fields = dict(draft.fields)
+    fields = _canonicalize_field_refs(draft.fields, valid_fields)
     if valid_fields:
-        unknown = sorted(ref for ref in fields if ref not in valid_fields)
+        valid_lookup = {ref.lower() for ref in valid_fields}
+        unknown = sorted(ref for ref in fields if ref.lower() not in valid_lookup)
         if unknown and not skip_unknown_fields:
             return f"Unknown target fields: {', '.join(unknown)}"
         for ref in unknown:
@@ -493,6 +495,16 @@ def _prepare_fields(
     if valid_wits and draft.work_item_type not in valid_wits:
         return f"Missing target work item type: {draft.work_item_type}"
     return fields
+
+
+def _canonicalize_field_refs(fields: dict[str, Any], valid_fields: set[str]) -> dict[str, Any]:
+    if not valid_fields:
+        return dict(fields)
+    canonical_by_lower = {ref.lower(): ref for ref in valid_fields}
+    canonical: dict[str, Any] = {}
+    for ref, value in fields.items():
+        canonical[canonical_by_lower.get(ref.lower(), ref)] = value
+    return canonical
 
 
 def _parallel_create_worker(args: argparse.Namespace, draft: WorkItemDraft, fields: dict[str, Any], parent_id: int | None) -> dict[str, Any]:
@@ -716,7 +728,11 @@ def _load_drafts(source: str, template: str | None) -> list[WorkItemDraft]:
         raise SystemExit(f"No source .xlsx, .xlsm, .csv, or .tsv files found in: {source_path}")
     rows = []
     for file in files:
-        rows.extend(load_rows(file))
+        file_rows = load_rows(file)
+        rows.extend(file_rows)
+        sheet_counts = Counter(str(row.get("_source_sheet") or "<file>") for row in file_rows)
+        detail = ", ".join(f"{sheet}={count}" for sheet, count in sorted(sheet_counts.items()))
+        _progress(f"Loaded {len(file_rows)} source row(s) from {file.name}" + (f" ({detail})" if detail else "."))
     return build_drafts(rows, mapping)
 
 
@@ -816,7 +832,8 @@ def _eligible_update_fields(args: argparse.Namespace) -> tuple[tuple[str, ...], 
 
 def _field_is_update_eligible(ref: str, eligible_fields: tuple[tuple[str, ...], set[str]], excluded: list[str]) -> bool:
     excluded_fields = {str(field or "").strip().lower() for field in excluded}
-    if ref.lower() in excluded_fields:
+    ref_lower = ref.lower()
+    if ref_lower in excluded_fields:
         return False
     blocked = {
         "System.State",
@@ -828,10 +845,12 @@ def _field_is_update_eligible(ref: str, eligible_fields: tuple[tuple[str, ...], 
         "Microsoft.VSTS.TCM.Steps",
         "Microsoft.VSTS.TCM.AutomationStatus",
     }
-    if ref in blocked:
+    if ref_lower in {field.lower() for field in blocked}:
         return False
     prefixes, fields = eligible_fields
-    return ref in fields or any(ref.startswith(prefix) for prefix in prefixes)
+    field_lookup = {field.lower() for field in fields}
+    prefix_lookup = tuple(prefix.lower() for prefix in prefixes)
+    return ref_lower in field_lookup or any(ref_lower.startswith(prefix) for prefix in prefix_lookup)
 
 
 def _changed_fields(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
