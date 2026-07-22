@@ -97,6 +97,23 @@ Apply catalog updates after reviewing the preview:
 python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
 ```
 
+## Build a guideline from an existing project
+
+`8_Generate_Guideline.py` is a read-only utility for taking a configuration snapshot. It is not part of the setup wizard because it reads Azure DevOps and writes only a local `.xlsx` file.
+
+```powershell
+python 8_Generate_Guideline.py `
+  --ado-org-url "https://dev.azure.com/<organization>" `
+  --ado-project "<existing project name>" `
+  --output "C:\BPCADO\out\<project>-ADO-guideline-July.xlsx"
+```
+
+The exporter derives the inherited process from the project. Use `--process-name` only when you intentionally need to read a different process. It accepts the same `BPC_ADO_ORG_URL`, `BPC_ADO_PROJECT`, `BPC_ADO_PROCESS_NAME`, and `BPC_ADO_PAT` environment variables used by the July setup package.
+
+The output includes work item types and assigned fields, picklists, layouts, backlog behaviors, area and iteration paths, teams, and team settings. A hidden `_Export metadata` sheet records the source organization, project, process, and UTC export time. The PAT is never written to the workbook.
+
+Review the workbook before running phases 1-4 with it. Azure DevOps does not retain guideline-only business-purpose text, recommendations, rule columns, or the historical rename source for a custom backlog. Matching metadata from `ADO template guideline (July).xlsx` is preserved by reference name; new items use safe defaults. The exporter stops if an area path exceeds the four levels supported by the July area-path setup script.
+
 ## Choose a worker count
 
 | Worker count | Recommended use |

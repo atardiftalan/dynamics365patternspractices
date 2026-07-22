@@ -16,6 +16,8 @@ Use this package to create or update the Azure DevOps process/project configurat
 | 6 | Generate deterministic HTML setup/import summary report | `6_Generate_HTML_Report.py` |
 | 7 | Update existing Business Process Catalog work items from source files | `7_BPC_Catalog_Update.py` |
 
+The package also includes `8_Generate_Guideline.py`, a read-only utility that exports an existing Azure DevOps project/process configuration to a July-compatible guideline workbook. It is intentionally separate from the mutating setup phases.
+
 ## Install dependencies
 
 Python 3.12 or later is recommended.
@@ -77,6 +79,27 @@ Apply catalog updates after reviewing the preview:
 ```powershell
 python setup_wizard.py --start-at 7 --stop-after 7 --catalog-update-apply
 ```
+
+## Export an existing Azure DevOps configuration
+
+Use the read-only exporter to create a guideline workbook from an existing project. The project normally identifies its process automatically; pass `--process-name` only to override that selection.
+
+```powershell
+python 8_Generate_Guideline.py `
+  --ado-org-url "https://dev.azure.com/<organization>" `
+  --ado-project "<existing project name>" `
+  --output ".\out\<project>-ADO-guideline-July.xlsx"
+```
+
+The command prompts for the PAT if `BPC_ADO_PAT` is not set. The setup PAT described below can be reused. For a read-only token, grant access to read projects/teams and work-item/process configuration.
+
+The exporter reads work item types, assigned fields, picklists, form layouts, backlog behaviors, areas, iterations, teams, and team settings. It writes the seven configuration sheets consumed by phases 1-4 and preserves the July workbook's formatting. Review the generated workbook before using it as setup input, especially these values that Azure DevOps does not store in the same form as the guideline:
+
+- business-purpose and field-use recommendation text,
+- guideline-only rule columns,
+- historical `Rename from` intent for custom backlog levels.
+
+For fields already present in the supplied July template, guideline-only metadata is preserved by reference name. Unknown fields are exported with safe defaults and blank guideline-only metadata. Area paths deeper than the four levels supported by the July setup scripts fail with a clear error instead of producing a lossy workbook.
 
 ## Phase 5 import behavior
 
